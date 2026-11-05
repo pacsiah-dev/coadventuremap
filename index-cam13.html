@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Outdoor Map</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
+  <style>
+    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
+    #map { position: absolute; inset: 0; }
+    #panel {
+      position: absolute; top: 10px; left: 10px; z-index: 2;
+      background: #fff; border-radius: 8px; padding: 8px 12px 8px 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.3);
+    }
+    #panel summary {
+      cursor: pointer; font-size: 15px; font-weight: 600; color: #222;
+      display: flex; align-items: center; gap: 6px;
+      list-style: none; min-height: 32px; padding: 0 0 0 4px; line-height: 1;
+    }
+    #panel summary::-webkit-details-marker { display: none; }
+    #panel summary::after { content: '\25B8'; font-size: 14px; }
+    #panel[open] summary::after { content: '\25BE'; }
+    #panel label {
+      display: flex; align-items: center; gap: 8px;
+      min-height: 36px; font-size: 15px; color: #222; cursor: pointer;
+    }
+    #panel input { width: 18px; height: 18px; margin: 0; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <details id="panel" open>
+    <summary>Layers</summary>
+  </details>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
+  <script>
+    if (typeof maplibregl === 'undefined') {
+      document.write('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">');
+      document.write('<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"><\/script>');
+    }
+  </script>
+  <script>
+    // ---- Overlay layers (all start unchecked) ----------------------------
+    // `tiles` = a raster tile URL. Entries without `tiles` are placeholders.
+    const LAYERS = [
+      { id: 'layer1', name: 'Layer 1: River gauges (NOAA)', on: false,
+        tiles: 'https://mapservices.weather.noaa.gov/eventdriven/rest/services/water/riv_gauges/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:0&f=image',
+        attribution: 'NOAA National Water Prediction Service',
+        popupType: 'point',
+        queryUrl: 'https://mapservices.weather.noaa.gov/eventdriven/rest/services/water/riv_gauges/MapServer/0/query' },
+      { id: 'layer2', name: 'Layer 2: Federal lands by agency', on: false,
+        tiles: 'https://services.arcgis.com/v01gqwM5QqNysAAi/ArcGIS/rest/services/PADUS3_0FederalManagementAgencies/MapServer/tile/{z}/{y}/{x}',
+        minzoom: 4, maxzoom: 9, opacity: 0.75,
+        attribution: 'USGS PAD-US 3.0', popupType: 'polygon',
+        queryUrl: 'https://services.arcgis.com/v01gqwM5QqNysAAi/ArcGIS/rest/services/Fee_Manager/FeatureServer/0/query',
+        where: "Mang_Type='FED'",
+        legendBase: 'https://services.arcgis.com/v01gqwM5QqNysAAi/ArcGIS/rest/services/PADUS3_0FederalManagementAgencies/MapServer/0/images/',
+        legend: [
+          ['BLM', '1ee7f9919f61924a7ff4a987379a2d0d'],
+          ['NPS', '9d2693d7dbf45989184177ee59d68200'],
+          ['Forest Service', 'e77b451ed7d5eda9c15a14e822470841'],
+          ['Fish and Wildlife', '1032c20786bc19538c5ef79a0311f148'],
+          ['Army Corps', 'ee5a9e3108c2436b080985377a0a48be'],
+          ['Reclamation', '0fedfdce6976e275b39890321adab02f'],
+          ['Defense (DOD)', 'b1564239b3e73129dbad8d65fa076bd8'],
+          ['BOEM', 'faab4dd60f315415a809c4c7e71dfa80'],
+          ['NOAA', 'a83ec63bd8c0993f87d64b002bd058d9'],
+          ['NRCS', '96822954409af7aef14f681087844b2a'],
+          ['Other federal', 'dea6642a2f43cf08f0a546f5991318d8'],
+          ['Tribal areas', '6c84be11e58ab44126c747d0e4aa2413']
+        ] },
+      { id: 'layer3', name: 'Layer 3', on: false },
+      { id: 'layer4', name: 'Layer 4', on: false },
+      { id: 'layer5', name: 'Layer 5', on: false }
+    ];
+
+    // ---- Basemap: USGS National Map topo (government raster tiles) -------
+    const style = {
+      version: 8,
+      sources: {
+        base: {
+          type: 'raster', tileSize: 256, maxzoom: 16,
+          tiles: ['https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}'],
+          attribution: 'USGS The National Map'
+        }
+      },
+      layers: [{ id: 'base', type: 'raster', source: 'base' }]
+    };
+
+    const HOME = { center: [-98, 39], zoom: 4 };
+
+    const map = new maplibregl.Map({
+      container: 'map', style: style, center: HOME.center, zoom: HOME.zoom,
+      dragRotate: false, pitchWithRotate: false, touchPitch: false
+    });
+    map.touchZoomRotate.disableRotation();
+    map.keyboard.disableRotation();
+
+    // Controls: zoom +/- only, then a home button
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+
+    class HomeControl {
+      onAdd() {
+        this._c = document.createElement('div');
+        this._c.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'home-btn';
+        b.title = 'Return to home view';
+        b.setAttribute('aria-label', 'Return to home view');
+        b.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#333" ' +
+          'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v10h13V10"/></svg>';
+        b.style.display = 'flex'; b.style.alignItems = 'center'; b.style.justifyContent = 'center';
+        b.addEventListener('click', () => map.flyTo({ center: HOME.center, zoom: HOME.zoom }));
+        this._c.appendChild(b);
+        return this._c;
+      }
+      onRemove() { this._c.remove(); }
+    }
+    map.addControl(new HomeControl(), 'top-right');
+
+    // On-screen error box (handy on a phone)
+    const errBox = document.createElement('div');
+    errBox.style.cssText = 'position:absolute;bottom:30px;left:10px;right:10px;z-index:3;' +
+      'background:#fde8e8;color:#7a1f1f;font:13px system-ui;padding:8px 10px;border-radius:8px;display:none';
+    document.body.appendChild(errBox);
+    map.on('error', e => {
+      errBox.style.display = 'block';
+      errBox.textContent = 'Map error: ' + ((e.error && e.error.message) || 'unknown') +
+        (e.sourceId ? ' (source: ' + e.sourceId + ')' : '');
+    });
+
+    // Checkbox panel
+    const panel = document.getElementById('panel');
+    LAYERS.forEach(l => {
+      const label = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = l.on;
+      box.addEventListener('change', () => {
+        l.on = box.checked;
+        if (map.getLayer(l.id)) {
+          map.setLayoutProperty(l.id, 'visibility', l.on ? 'visible' : 'none');
+        }
+      });
+      label.append(box, document.createTextNode(l.name));
+      panel.appendChild(label);
+      if (l.legend) {
+        const lg = document.createElement('div');
+        lg.style.cssText = 'padding:0 0 6px 26px;font-size:13px;color:#333;display:' + (l.on ? 'block' : 'none');
+        l.legend.forEach(([text, img]) => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:6px;min-height:20px';
+          const sw = document.createElement('img');
+          sw.src = l.legendBase + img; sw.alt = ''; sw.width = 14; sw.height = 14;
+          row.append(sw, document.createTextNode(text));
+          lg.appendChild(row);
+        });
+        panel.appendChild(lg);
+        box.addEventListener('change', () => { lg.style.display = box.checked ? 'block' : 'none'; });
+      }
+    });
+
+
+    // ---- Gauge popups: ask the NOAA service what is under the tap -------
+    const STATUS = {
+      major: 'Major flooding', moderate: 'Moderate flooding', minor: 'Minor flooding',
+      action: 'Near flood stage', no_flooding: 'No flooding', not_defined: 'Flood category not defined',
+      obs_not_current: 'Data not current', out_of_service: 'Out of service',
+      low_threshold: 'Low water', no_forecast: 'No forecast'
+    };
+
+    function gaugePopupContent(a) {
+      const g = {};
+      Object.keys(a).forEach(k => { g[k.toLowerCase()] = a[k]; });
+      const box = document.createElement('div');
+      box.style.cssText = 'font:14px system-ui;line-height:1.4;max-width:230px';
+      const add = (text, bold) => {
+        const d = document.createElement('div');
+        if (bold) d.style.fontWeight = '600';
+        d.textContent = text;
+        box.appendChild(d);
+      };
+      add(g.location || g.waterbody || 'River gauge', true);
+      if (g.waterbody && g.location) add(g.waterbody + (g.state ? ', ' + g.state : ''));
+      else if (g.state) add(g.state);
+      if (g.status) add('Status: ' + (STATUS[g.status] || g.status));
+      const val = g.observed !== undefined ? g.observed : g.stage;
+      if (val !== undefined && val !== null && val !== '' && Number(val) > -999) {
+        add('Observed: ' + val + (g.units ? ' ' + g.units : ''));
+      }
+      if (g.obstime) add('As of ' + g.obstime + ' UTC');
+      if (g.gaugelid) add('Gauge ID: ' + g.gaugelid);
+      if (g.url && String(g.url).indexOf('http') === 0) {
+        const link = document.createElement('a');
+        link.href = g.url; link.target = '_blank'; link.rel = 'noopener';
+        link.textContent = 'Hydrograph';
+        box.appendChild(link);
+      }
+      return box;
+    }
+
+    function showError(msg) {
+      errBox.style.display = 'block';
+      errBox.textContent = msg;
+    }
+
+    // Tap on a gauge (point layer): returns true if a popup was shown
+    async function gaugePopup(l, e) {
+      const metersPerPx = 156543.03 * Math.cos(e.lngLat.lat * Math.PI / 180) / Math.pow(2, map.getZoom());
+      const params = new URLSearchParams({
+        geometry: e.lngLat.lng + ',' + e.lngLat.lat, geometryType: 'esriGeometryPoint',
+        inSR: '4326', outSR: '4326', spatialRel: 'esriSpatialRelIntersects',
+        distance: String(Math.round(metersPerPx * 16)), units: 'esriSRUnit_Meter',
+        outFields: '*', returnGeometry: 'true', f: 'json'
+      });
+      const res = await fetch(l.queryUrl + '?' + params);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message || 'Query failed');
+      const feats = data.features || [];
+      if (!feats.length) return false;
+      feats.sort((p, q) => {
+        const d = f => f.geometry ? Math.hypot(f.geometry.x - e.lngLat.lng, f.geometry.y - e.lngLat.lat) : 0;
+        return d(p) - d(q);
+      });
+      new maplibregl.Popup({ maxWidth: '260px' })
+        .setLngLat(feats[0].geometry ? [feats[0].geometry.x, feats[0].geometry.y] : e.lngLat)
+        .setDOMContent(gaugePopupContent(feats[0].attributes || {}))
+        .addTo(map);
+      return true;
+    }
+
+    // Tap on federal land (polygon layer): shows the official unit name only
+    async function landPopup(l, e) {
+      const params = new URLSearchParams({
+        geometry: e.lngLat.lng + ',' + e.lngLat.lat, geometryType: 'esriGeometryPoint',
+        inSR: '4326', spatialRel: 'esriSpatialRelIntersects', where: l.where || '1=1',
+        outFields: 'Unit_Nm,Loc_Nm', returnGeometry: 'false', f: 'json'
+      });
+      const res = await fetch(l.queryUrl + '?' + params);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message || 'Query failed');
+      const a = (data.features && data.features[0] && data.features[0].attributes) || null;
+      const name = a && (a.Unit_Nm || a.Loc_Nm);
+      if (!name) return false;
+      const box = document.createElement('div');
+      box.style.cssText = 'font:600 14px system-ui;line-height:1.4;max-width:230px';
+      box.textContent = name;
+      new maplibregl.Popup({ maxWidth: '260px' }).setLngLat(e.lngLat).setDOMContent(box).addTo(map);
+      return true;
+    }
+
+    // One click handler: checked layers are tried in order, first hit wins
+    map.on('click', async e => {
+      for (const l of LAYERS) {
+        if (!l.queryUrl || !l.on) continue;
+        try {
+          const shown = l.popupType === 'polygon' ? await landPopup(l, e) : await gaugePopup(l, e);
+          if (shown) return;
+        } catch (err) {
+          showError('Could not load details for ' + l.name + ': ' + err.message);
+          return;
+        }
+      }
+    });
+
+    // Add each layer that has a tile URL
+    map.on('load', () => {
+      LAYERS.forEach(l => {
+        if (!l.tiles) return;
+        map.addSource(l.id, { type: 'raster', tileSize: 256,
+          minzoom: l.minzoom || 0, maxzoom: l.maxzoom || 16,
+          tiles: [l.tiles], attribution: l.attribution || '' });
+        map.addLayer({ id: l.id, type: 'raster', source: l.id,
+          layout: { visibility: l.on ? 'visible' : 'none' },
+          paint: { 'raster-opacity': l.opacity === undefined ? 1 : l.opacity } });
+      });
+    });
+  </script>
+</body>
+</html>
