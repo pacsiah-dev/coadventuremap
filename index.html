@@ -8,31 +8,40 @@
   <style>
     html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
     #map { position: absolute; inset: 0; }
-    #panel {
+    #panels {
       position: absolute; top: 10px; left: 10px; z-index: 2;
+      display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+      max-height: calc(100% - 20px); overflow-y: auto;
+    }
+    .panel {
       background: #fff; border-radius: 8px; padding: 8px 12px 8px 8px;
       box-shadow: 0 1px 4px rgba(0,0,0,.3);
     }
-    #panel summary {
+    .panel summary {
       cursor: pointer; font-size: 15px; font-weight: 600; color: #222;
       display: flex; align-items: center; gap: 6px;
       list-style: none; min-height: 32px; padding: 0 0 0 4px; line-height: 1;
     }
-    #panel summary::-webkit-details-marker { display: none; }
-    #panel summary::after { content: '\25B8'; font-size: 14px; }
-    #panel[open] summary::after { content: '\25BE'; }
-    #panel label {
+    .panel summary::-webkit-details-marker { display: none; }
+    .panel summary::after { content: '\25B8'; font-size: 14px; }
+    .panel[open] summary::after { content: '\25BE'; }
+    .panel label {
       display: flex; align-items: center; gap: 8px;
       min-height: 36px; font-size: 15px; color: #222; cursor: pointer;
     }
-    #panel input { width: 18px; height: 18px; margin: 0; }
+    .panel input { width: 18px; height: 18px; margin: 0; }
   </style>
 </head>
 <body>
   <div id="map"></div>
-  <details id="panel" open>
-    <summary>Layers</summary>
-  </details>
+  <div id="panels">
+    <details class="panel" id="panel" open>
+      <summary>Layers</summary>
+    </details>
+    <details class="panel" id="basemaps">
+      <summary>Basemap</summary>
+    </details>
+  </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js"></script>
   <script>
@@ -45,39 +54,51 @@
     // ---- Overlay layers (all start unchecked) ----------------------------
     // `tiles` = a raster tile URL. Entries without `tiles` are placeholders.
     const LAYERS = [
-      { id: 'layer1', name: 'River gauges (NOAA)', on: false,
+      { id: 'radar', name: 'Weather radar (NOAA)', on: false,
+        tiles: 'https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_base_reflectivity/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:0&f=image',
+        maxzoom: 12, opacity: 0.7,
+        attribution: 'NOAA National Weather Service' },
+      { id: 'gauges', name: 'River gauges (NOAA)', on: false,
         tiles: 'https://mapservices.weather.noaa.gov/eventdriven/rest/services/water/riv_gauges/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:0&f=image',
         attribution: 'NOAA National Water Prediction Service',
         popupType: 'point',
         queryUrl: 'https://mapservices.weather.noaa.gov/eventdriven/rest/services/water/riv_gauges/MapServer/0/query' },
-      { id: 'layer2', name: 'Federal lands by agency', on: false,
+      { id: 'fedlands', name: 'Federal lands by agency', on: false,
         tiles: 'https://services.arcgis.com/v01gqwM5QqNysAAi/ArcGIS/rest/services/PADUS3_0FederalManagementAgencies/MapServer/tile/{z}/{y}/{x}',
         minzoom: 4, maxzoom: 9, opacity: 0.75,
         attribution: 'USGS PAD-US 3.0', popupType: 'polygon',
         queryUrl: 'https://services.arcgis.com/v01gqwM5QqNysAAi/ArcGIS/rest/services/Fee_Manager/FeatureServer/0/query',
         where: "Mang_Type='FED'" },
-      { id: 'layer3', name: 'Layer 3', on: false },
-      { id: 'layer4', name: 'Layer 4', on: false },
-      { id: 'layer5', name: 'Layer 5', on: false }
+      { id: 'cpwlands', name: 'State parks & wildlife areas (CPW)', on: false,
+        tiles: 'https://gis.colorado.gov/public/rest/services/OIT/Colorado_State_Basemap/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:30,41&f=image',
+        opacity: 0.85,
+        attribution: 'Colorado Parks and Wildlife GIS Unit' },
+      { id: 'blmrec', name: 'BLM Colorado recreation sites', on: false,
+        tiles: 'https://gis.blm.gov/coarcgis/rest/services/recreation/BLM_CO_Recreation/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&f=image',
+        attribution: 'Bureau of Land Management Colorado' }
     ];
 
-    // ---- Basemap: USGS National Map topo (government raster tiles) -------
-    const style = {
+    // ---- Basemaps (first one is the default; all are plain raster tiles, no key) ----
+    const rasterStyle = (url, attr, maxzoom) => ({
       version: 8,
-      sources: {
-        base: {
-          type: 'raster', tileSize: 256, maxzoom: 16,
-          tiles: ['https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}'],
-          attribution: 'USGS The National Map'
-        }
-      },
+      sources: { base: { type: 'raster', tileSize: 256, maxzoom: maxzoom, attribution: attr, tiles: [url] } },
       layers: [{ id: 'base', type: 'raster', source: 'base' }]
-    };
+    });
+    const USGS = 'https://basemap.nationalmap.gov/arcgis/rest/services/';
+    const BASEMAPS = [
+      { id: 'topo',    name: 'USGS Topo',
+        style: rasterStyle(USGS + 'USGSTopo/MapServer/tile/{z}/{y}/{x}', 'USGS The National Map', 16) },
+      { id: 'imagery', name: 'Satellite (USGS imagery)',
+        style: rasterStyle(USGS + 'USGSImageryOnly/MapServer/tile/{z}/{y}/{x}', 'USGS The National Map', 16) },
+      { id: 'esri',    name: 'Streets (Esri)',
+        style: rasterStyle('https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+          'Sources: Esri, HERE, Garmin, USGS, NPS, OpenStreetMap contributors', 18) }
+    ];
 
-    const HOME = { center: [-98, 39], zoom: 4 };
+    const HOME = { center: [-105.55, 39.0], zoom: 5.6 };
 
     const map = new maplibregl.Map({
-      container: 'map', style: style, center: HOME.center, zoom: HOME.zoom,
+      container: 'map', style: BASEMAPS[0].style, center: HOME.center, zoom: HOME.zoom,
       dragRotate: false, pitchWithRotate: false, touchPitch: false
     });
     map.touchZoomRotate.disableRotation();
@@ -136,6 +157,19 @@
     });
 
 
+    // Basemap radio buttons
+    const bmPanel = document.getElementById('basemaps');
+    BASEMAPS.forEach((b, i) => {
+      const label = document.createElement('label');
+      const radio = document.createElement('input');
+      radio.type = 'radio'; radio.name = 'basemap'; radio.checked = i === 0;
+      radio.addEventListener('change', () => {
+        if (radio.checked) map.setStyle(b.style, { diff: false });
+      });
+      label.append(radio, document.createTextNode(b.name));
+      bmPanel.appendChild(label);
+    });
+
     // ---- Gauge popups: ask the NOAA service what is under the tap -------
     const STATUS = {
       major: 'Major flooding', moderate: 'Moderate flooding', minor: 'Minor flooding',
@@ -176,7 +210,16 @@
 
     function showError(msg) {
       errBox.style.display = 'block';
+      errBox.style.background = '#fde8e8';
+      errBox.style.color = '#7a1f1f';
       errBox.textContent = msg;
+    }
+    function showInfo(msg) {
+      errBox.style.display = 'block';
+      errBox.style.background = '#e8f1fd';
+      errBox.style.color = '#1f3f7a';
+      errBox.textContent = msg;
+      setTimeout(() => { errBox.style.display = 'none'; }, 8000);
     }
 
     // Tap on a gauge (point layer): returns true if a popup was shown
@@ -238,18 +281,23 @@
       }
     });
 
-    // Add each layer that has a tile URL
-    map.on('load', () => {
-      LAYERS.forEach(l => {
-        if (!l.tiles) return;
+    // Overlays are (re)added each time a basemap loads. The first panel entry ends up
+    // on top, and overlays sit beneath the basemap's text labels when it has any.
+    function addOverlays() {
+      const styleLayers = map.getStyle().layers || [];
+      const firstLabel = styleLayers.find(x => x.type === 'symbol' && x.layout && x.layout['text-field']);
+      const beforeId = firstLabel ? firstLabel.id : undefined;
+      LAYERS.slice().reverse().forEach(l => {
+        if (!l.tiles || map.getSource(l.id)) return;
         map.addSource(l.id, { type: 'raster', tileSize: 256,
           minzoom: l.minzoom || 0, maxzoom: l.maxzoom || 16,
           tiles: [l.tiles], attribution: l.attribution || '' });
         map.addLayer({ id: l.id, type: 'raster', source: l.id,
           layout: { visibility: l.on ? 'visible' : 'none' },
-          paint: { 'raster-opacity': l.opacity === undefined ? 1 : l.opacity } });
+          paint: { 'raster-opacity': l.opacity === undefined ? 1 : l.opacity } }, beforeId);
       });
-    });
+    }
+    map.on('style.load', addOverlays);
   </script>
 </body>
 </html>
