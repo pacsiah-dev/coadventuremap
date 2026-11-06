@@ -35,7 +35,7 @@
 <body>
   <div id="map"></div>
   <div id="panels">
-    <details class="panel" id="panel" open>
+    <details class="panel" id="panel">
       <summary>Layers</summary>
     </details>
     <details class="panel" id="basemaps">
@@ -127,6 +127,13 @@
       onRemove() { this._c.remove(); }
     }
     map.addControl(new HomeControl(), 'top-right');
+
+    // "Show my location" button (uses the phone's GPS; needs an HTTPS page)
+    map.addControl(new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true,
+      showAccuracyCircle: true
+    }), 'top-right');
 
     // On-screen error box (handy on a phone)
     const errBox = document.createElement('div');
