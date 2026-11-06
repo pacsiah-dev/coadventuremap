@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Outdoor Map</title>
+  <title>Colorado Adventure Map</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css">
   <style>
     html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
@@ -58,11 +58,27 @@
         tiles: 'https://mapservices.weather.noaa.gov/eventdriven/rest/services/radar/radar_base_reflectivity/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:0&f=image',
         maxzoom: 12, opacity: 0.7,
         attribution: 'NOAA National Weather Service' },
+      { id: 'fires', name: 'Wildfire perimeters (NIFC mirror)', on: false,
+        tiles: 'https://mercator.env.nm.gov/server/rest/services/nifc/active_fire_perimeters/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:0&f=image',
+        minzoom: 6, opacity: 0.9,
+        attribution: 'NIFC data via New Mexico Environment Department' },
+      { id: 'snow', name: 'Snow depth (NOAA)', on: false,
+        tiles: 'https://mapservices.weather.noaa.gov/raster/rest/services/snow/NOHRSC_Snow_Analysis/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:0&f=image',
+        maxzoom: 9, opacity: 0.65,
+        attribution: 'NOAA NWS National Operational Hydrologic Remote Sensing Center' },
       { id: 'gauges', name: 'River gauges (NOAA)', on: false,
         tiles: 'https://mapservices.weather.noaa.gov/eventdriven/rest/services/water/riv_gauges/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:0&f=image',
         attribution: 'NOAA National Water Prediction Service',
         popupType: 'point',
         queryUrl: 'https://mapservices.weather.noaa.gov/eventdriven/rest/services/water/riv_gauges/MapServer/0/query' },
+      { id: 'usfstrails', name: 'USFS trails (zoom in)', on: false,
+        tiles: 'https://apps.fs.usda.gov/ArcX/rest/services/EDW/EDW_TrailNFSPublish_01/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:0&f=image',
+        minzoom: 11,
+        attribution: 'USDA Forest Service' },
+      { id: 'usfsrec', name: 'USFS recreation sites (zoom in)', on: false,
+        tiles: 'https://apps.fs.usda.gov/ArcX/rest/services/EDW/EDW_RecreationOpportunities_01/MapServer/export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:0&f=image',
+        minzoom: 11,
+        attribution: 'USDA Forest Service' },
       { id: 'fedlands', name: 'Federal lands by agency', on: false,
         tiles: 'https://services.arcgis.com/v01gqwM5QqNysAAi/ArcGIS/rest/services/PADUS3_0FederalManagementAgencies/MapServer/tile/{z}/{y}/{x}',
         minzoom: 4, maxzoom: 9, opacity: 0.75,
@@ -146,6 +162,8 @@
         (e.sourceId ? ' (source: ' + e.sourceId + ')' : '');
     });
 
+    const idsFor = l => [l.id];
+
     // Checkbox panel
     const panel = document.getElementById('panel');
     LAYERS.forEach(l => {
@@ -155,9 +173,9 @@
       box.checked = l.on;
       box.addEventListener('change', () => {
         l.on = box.checked;
-        if (map.getLayer(l.id)) {
-          map.setLayoutProperty(l.id, 'visibility', l.on ? 'visible' : 'none');
-        }
+        idsFor(l).forEach(id => {
+          if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', l.on ? 'visible' : 'none');
+        });
       });
       label.append(box, document.createTextNode(l.name));
       panel.appendChild(label);
